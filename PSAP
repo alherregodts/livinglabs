@@ -1,0 +1,78 @@
+#  libraries
+library(foreign)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+# testdata
+testdata <- data.frame(
+    w_max = 20:320,
+    w_duur = 15:315,
+    w_goedkoop = 10:310,
+    w_min = 5:305
+)
+
+# read data
+surveydata <- read.spss("dummydata.sav", to.data.frame = T)
+
+# transform data
+surveydata$w_max <- round(surveydata$w_max, digits = 0)
+surveydata$w_duur <- round(surveydata$w_duur, digits = 0)
+surveydata$w_goedkoop <- round(surveydata$w_goedkoop, digits = 0)
+surveydata$w_min <- round(surveydata$w_min, digits = 0)
+
+# frequency tables
+f_max <- as.data.frame(table(surveydata$w_max), stringsAsFactors=F)
+names(f_max) <- c("price", "f_max")
+class(f_max$price) <- "numeric"
+
+f_duur <- as.data.frame(table(surveydata$w_duur), stringsAsFactors=F)
+names(f_duur) <- c("price", "f_duur")
+class(f_duur$price) <- "numeric"
+
+f_goedkoop <- as.data.frame(table(surveydata$w_goedkoop), stringsAsFactors=F)
+names(f_goedkoop) <- c("price", "f_goedkoop")
+class(f_goedkoop$price) <- "numeric"
+
+f_min <- as.data.frame(table(surveydata$w_min), stringsAsFactors=F)
+names(f_min) <- c("price", "f_min")
+class(f_min$price) <- "numeric"
+
+# initiatize price range
+westendorp <- data.frame(price = 0:320)
+
+# join westendorp data
+westendorp <- left_join(westendorp, f_max, by="price")
+westendorp <- left_join(westendorp, f_duur, by="price")
+westendorp <- left_join(westendorp, f_goedkoop, by="price")
+westendorp <- left_join(westendorp, f_min, by="price")
+
+# NA = 0
+westendorp[is.na(westendorp)] <- 0
+
+# cummulatieve percentages berekenen
+westendorp$c_max <- 100*cumsum(westendorp$f_max)/sum(westendorp$f_max)
+westendorp$c_duur <- 100*cumsum(westendorp$f_duur)/sum(westendorp$f_duur)
+westendorp$c_goedkoop <- 100*cumsum(westendorp$f_goedkoop)/sum(westendorp$f_goedkoop)
+westendorp$c_min <- 100*cumsum(westendorp$f_min)/sum(westendorp$f_min)
+
+# reversed cummulatieve percentages berekenen voor goedkoop en min
+westendorp$cr_goedkoop <- 100 - westendorp$c_goedkoop
+westendorp$cr_min <- 100 - westendorp$c_min
+
+# intersections
+idp <- approxfun(westendorp$cr_goedkoop - westendorp$c_duur,westendorp$price, rule=2)
+mgp <- approxfun(westendorp$cr_min - westendorp$c_duur,westendorp$price, rule=2)
+ops <- approxfun(westendorp$cr_min - westendorp$c_max,westendorp$price, rule=2)
+mdp <- approxfun(westendorp$cr_goedkoop - westendorp$c_max,westendorp$price, rule=2)
+
+
+# long form (tidy data)
+westendorp_spreaded <- gather(data=westendorp[,c("price", "c_max", "c_duur", "cr_goedkoop", "cr_min")],
+                              key = price, value = "percent")
+names(westendorp_spreaded) <- c("price", "range", "percent")
+
+# graph
+g <- ggplot(data = westendorp_spreaded, mapping = aes(price, percent, color=range))
+g + geom_line() + 
+    coord_cartesian(xlim=c(mgp(0)-40, mdp(0)+40))
